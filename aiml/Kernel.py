@@ -26,7 +26,11 @@ from .AimlParser import create_parser
 from .PatternMgr import PatternMgr
 from .WordSub import WordSub
 
-
+from pathlib import Path
+from logging import DEBUG, StreamHandler, getLogger, root
+log = getLogger(__name__)
+root.addHandler(StreamHandler(sys.stderr))
+root.setLevel(DEBUG)
 
 def msg_encoder( encoding=None ):
     """
@@ -54,7 +58,7 @@ class Kernel:
     _outputHistory = "_outputHistory"   # keys to a queue (list) of recent responses.
     _inputStack = "_inputStack"         # Should always be empty in between calls to respond()
 
-    def __init__(self):
+    def __init__(self, sessions=None):
         self._verboseMode = True
         self._version = "python-aiml {}".format(VERSION)
         self._brain = PatternMgr()
@@ -62,7 +66,7 @@ class Kernel:
         self.setTextEncoding( None if PY3 else "utf-8" )
 
         # set up the sessions        
-        self._sessions = {}
+        self._sessions = sessions if sessions is not None else {}
         self._addSession(self._globalSessionID)
 
         # Set up the bot predicates
@@ -129,7 +133,7 @@ class Kernel:
         processing). Upon returning the current directory is moved back to 
         where it was before.
         """
-        start = time.clock()
+        start = time.monotonic()
         if brainFile:
             self.loadBrain(brainFile)
 
@@ -142,6 +146,15 @@ class Kernel:
             # turned into a single-element list.
             if isinstance( learnFiles, (str,unicode) ):
                 learnFiles = (learnFiles,)
+            if not learnFiles:
+                directory = Path(__file__).parent
+                learnFiles = [
+                    f.as_posix()
+                    for f in 
+                    directory.glob("**/*.aiml")
+                    if "cn" not in f.stem
+                ]
+            log.debug("Loading %d files", len(learnFiles))
             for file in learnFiles:
                 self.learn(file)
 
@@ -156,7 +169,7 @@ class Kernel:
                 os.chdir( prev )
 
         if self._verboseMode:
-            print( "Kernel bootstrap completed in %.2f seconds" % (time.clock() - start) )
+            print( "Kernel bootstrap completed in %.2f seconds" % (time.monotonic() - start) )
 
     def verbose(self, isVerbose = True):
         """Enable/disable verbose output mode."""
@@ -190,19 +203,19 @@ class Kernel:
 
         """
         if self._verboseMode: print( "Loading brain from %s..." % filename, end="" )
-        start = time.clock()
+        start = time.monotonic()
         self._brain.restore(filename)
         if self._verboseMode:
-            end = time.clock() - start
+            end = time.monotonic() - start
             print( "done (%d categories in %.2f seconds)" % (self._brain.numTemplates(), end) )
 
     def saveBrain(self, filename):
         """Dump the contents of the bot's brain to a file on disk."""
         if self._verboseMode: print( "Saving brain to %s..." % filename, end="")
-        start = time.clock()
+        start = time.monotonic()
         self._brain.save(filename)
         if self._verboseMode:
-            print( "done (%.2f seconds)" % (time.clock() - start) )
+            print( "done (%.2f seconds)" % (time.monotonic() - start) )
 
     def getPredicate(self, name, sessionID = _globalSessionID):
         """Retrieve the current value of the predicate 'name' from the
@@ -326,7 +339,7 @@ class Kernel:
         """
         for f in glob.glob(filename):
             if self._verboseMode: print( "Loading %s..." % f, end="")
-            start = time.clock()
+            start = time.monotonic()
             # Load and parse the AIML file.
             parser = create_parser()
             handler = parser.getContentHandler()
@@ -341,7 +354,7 @@ class Kernel:
                 self._brain.add(key,tem)
             # Parsing was successful.
             if self._verboseMode:
-                print( "done (%.2f seconds)" % (time.clock() - start) )
+                print( "done (%.2f seconds)" % (time.monotonic() - start) )
 
     def respond(self, input_, sessionID = _globalSessionID):
         """Return the Kernel's response to the input string."""
@@ -396,6 +409,8 @@ class Kernel:
         finally:
             # release the lock
             self._respondLock.release()
+            if hasattr(self, "onResponse"):
+                self.onResponse(s, sessionID, response)
 
 
     # This version of _respond() just fetches the response for some input.
@@ -603,8 +618,11 @@ class Kernel:
         AIML specification doesn't require any particular format for
         this information, so I go with whatever's simplest.
 
-        """        
-        return time.asctime()
+        """
+        log.debug("_processDate({elem=})")
+        timestamp = time.asctime()
+        log.debug("_processDate({elem=}): returning {timestamp=}")
+        return timestamp
 
     # <formal>
     def _processFormal(self, elem, sessionID):
@@ -646,7 +664,11 @@ class Kernel:
         specified session.
 
         """
-        return self.getPredicate(elem[1]['name'], sessionID)
+        name = elem[1]['name']
+        print("processGet name=", name)
+        rs = self.getPredicate(name, sessionID)
+        print("processGet name=", name, " -> ", rs)
+        return rs
 
     # <gossip>
     def _processGossip(self, elem, sessionID):
@@ -888,10 +910,26 @@ class Kernel:
         returned.
 
         """
+        print("srai elem=", elem)
         newInput = ""
+        print("srai elem[2:]=", elem[2:])
         for e in elem[2:]:
-            newInput += self._processElement(e, sessionID)
-        return self._respond(newInput, sessionID)
+            print("srai processElement e=", e)
+            rs = self._processElement(e, sessionID)
+            print("srai processElement returned rs=", rs)
+            newInput += " " + rs
+            newInput = newInput.strip()
+            print("srai newInput -> ", newInput)
+        print("srai respomd with newInput=", newInput)
+        resp_rs = None
+        if newInput.strip().lower().split()[0] == "my":
+            what = " ".join(newInput.strip().lower().split()[1:])
+            resp_rs = self._sessions[sessionID].get(what)
+        if not resp_rs:
+            resp_rs = self._respond(newInput, sessionID)
+        print("srai respomd returned ", resp_rs)
+        print("srai elem=", elem, " -> ", resp_rs)
+        return resp_rs
 
     # <star>
     def _processStar(self, elem, sessionID):
@@ -1125,4 +1163,3 @@ class Kernel:
 
         """
         return self.version()
-
