@@ -102,7 +102,7 @@ class AimlHandler(ContentHandler):
         """
         assert len(self._whitespaceBehaviorStack) > 0, "Whitespace behavior stack should never be empty!"
         try:
-            if attr["xml:space"] == "default" or attr["xml:space"] == "preserve":
+            if attr["xml:space"] in ["default", "preserve"]:
                 self._whitespaceBehaviorStack.append(attr["xml:space"])
             else:
                 raise AimlParserError( "Invalid value for xml:space attribute "+self._location() )
@@ -116,7 +116,6 @@ class AimlHandler(ContentHandler):
         if (elem == "bot"): 
                     print( "name:", attr.getValueByQName("name"), "a'ite?" )
         self.startElement(elem, attr)
-        pass
 
     def startElement(self, name, attr):
         # Wrapper around _startElement, which catches errors in _startElement()
@@ -242,15 +241,13 @@ class AimlHandler(ContentHandler):
             # foundDefaultLiStack
             if name == "condition":
                 self._foundDefaultLiStack.append(False)
+        elif self._forwardCompatibleMode:
+            # In Forward Compatibility Mode, we ignore the element and its
+            # contents.
+            self._currentUnknown = name
         else:
-            # we're now inside an unknown element.
-            if self._forwardCompatibleMode:
-                # In Forward Compatibility Mode, we ignore the element and its
-                # contents.
-                self._currentUnknown = name
-            else:
-                # Otherwise, unknown elements are grounds for error!
-                raise AimlParserError( ("Unexpected <%s> tag " % name)+self._location() )
+            # Otherwise, unknown elements are grounds for error!
+            raise AimlParserError( ("Unexpected <%s> tag " % name)+self._location() )
 
     def characters(self, ch):
         # Wrapper around _characters which catches errors in _characters()
@@ -287,37 +284,38 @@ class AimlHandler(ContentHandler):
                 parent = self._elemStack[-1][0]
                 parentAttr = self._elemStack[-1][1]
                 required, optional, canBeParent = self._validInfo[parent]
-                nonBlockStyleCondition = (parent == "condition" and not ("name" in parentAttr and "value" in parentAttr))
-                if not canBeParent:
+                nonBlockStyleCondition = parent == "condition" and (
+                    "name" not in parentAttr or "value" not in parentAttr
+                )
+
+                if (
+                    canBeParent
+                    and (parent == "random" or nonBlockStyleCondition)
+                    and len(text.strip()) == 0
+                ):
+                    # ignore whitespace inside these elements.
+                    return
+                elif (
+                    canBeParent
+                    and (parent == "random" or nonBlockStyleCondition)
+                    and len(text.strip()) != 0
+                    or not canBeParent
+                ):
+                    # non-whitespace text inside these elements is a syntax error.
                     raise AimlParserError( ("Unexpected text inside <%s> element "%parent)+self._location() )
-                elif parent == "random" or nonBlockStyleCondition:
-                    # <random> elements can only contain <li> subelements. However,
-                    # there's invariably some whitespace around the <li> that we need
-                    # to ignore. Same for non-block-style <condition> elements (i.e.
-                    # those which don't have both a "name" and a "value" attribute).
-                    if len(text.strip()) == 0:
-                        # ignore whitespace inside these elements.
-                        return
-                    else:
-                        # non-whitespace text inside these elements is a syntax error.
-                        raise AimlParserError( ("Unexpected text inside <%s> element "%parent)+self._location() )
             except IndexError:
                 # the element stack is empty. This should never happen.
                 raise AimlParserError( "Element stack is empty while validating text "+self._location() )
-            
+
             # Add a new text element to the element at the top of the element
             # stack. If there's already a text element there, simply append the
             # new characters to its contents.
             try: textElemOnStack = (self._elemStack[-1][-1][0] == "text")
-            except IndexError: textElemOnStack = False
-            except KeyError: textElemOnStack = False
+            except (IndexError, KeyError): textElemOnStack = False
             if textElemOnStack:
                 self._elemStack[-1][-1][2] += text
             else:
                 self._elemStack[-1].append(["text", {"xml:space": self._whitespaceBehaviorStack[-1]}, text])
-        else:
-            # all other text is ignored
-            pass
 
     def endElementNS(self, name, qname):
         uri, elem = name
@@ -473,7 +471,7 @@ class AimlHandler(ContentHandler):
                 raise AimlParserError( ("Required \"%s\" attribute missing in <%s> element " % (a,name))+self._location() )
         for a in attr:
             if a in required: continue
-            if a[0:4] == "xml:": continue # attributes in the "xml" namespace can appear anywhere
+            if a[:4] == "xml:": continue # attributes in the "xml" namespace can appear anywhere
             if a not in optional and not self._forwardCompatibleMode:
                 raise AimlParserError( ("Unexpected \"%s\" attribute in <%s> element " % (a,name))+self._location() )
 
@@ -499,18 +497,14 @@ class AimlHandler(ContentHandler):
             # happen.
             raise AimlParserError( ("Element stack is empty while validating <%s> " % name)+self._location() )
         required, optional, canBeParent = self._validInfo[parent]
-        nonBlockStyleCondition = (parent == "condition" and not ("name" in parentAttr and "value" in parentAttr))
+        nonBlockStyleCondition = parent == "condition" and (
+            "name" not in parentAttr or "value" not in parentAttr
+        )
+
         if not canBeParent:
             raise AimlParserError( ("<%s> elements cannot have any contents "%parent)+self._location() )
-        # Special-case test if the parent element is <condition> (the
-        # non-block-style variant) or <random>: these elements can only
-        # contain <li> subelements.
         elif (parent == "random" or nonBlockStyleCondition) and name!="li":
             raise AimlParserError( ("<%s> elements can only contain <li> subelements "%parent)+self._location() )
-        # Special-case test for <li> elements, which can only be contained
-        # by non-block-style <condition> and <random> elements, and whose
-        # required attributes are dependent upon which attributes are
-        # present in the <condition> parent.
         elif name=="li":
             if not (parent=="random" or nonBlockStyleCondition):
                 raise AimlParserError( ("Unexpected <li> element contained by <%s> element "%parent)+self._location() )
@@ -525,9 +519,7 @@ class AimlHandler(ContentHandler):
                             raise AimlParserError( "Unexpected default <li> element inside <condition> "+self._location() )
                         else:
                             self._foundDefaultLiStack[-1] = True
-                    elif len(attr) == 1 and "value" in attr:
-                        pass # this is the valid case
-                    else:
+                    elif len(attr) != 1 or "value" not in attr:
                         raise AimlParserError( "Invalid <li> inside single-predicate <condition> "+self._location() )
                 elif len(parentAttr) == 0:
                     # Multi-predicate condition.  Each <li> element except the
@@ -539,9 +531,7 @@ class AimlHandler(ContentHandler):
                             raise AimlParserError( "Unexpected default <li> element inside <condition> "+self._location() )
                         else:
                             self._foundDefaultLiStack[-1] = True
-                    elif len(attr) == 2 and "value" in attr and "name" in attr:
-                        pass # this is the valid case
-                    else:
+                    elif len(attr) != 2 or "value" not in attr or "name" not in attr:
                         raise AimlParserError( "Invalid <li> inside multi-predicate <condition> "+self._location() )
         # All is well!
         return True

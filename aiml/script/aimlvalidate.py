@@ -41,8 +41,8 @@ def get_file_position( filename, row, col, encoding='utf-8' ):
     # Get a marker pointing to the column
     marker = '-' * (col-start) + '^'
     if start > 0:
-        buf = u'...' + buf
-        marker = '---' + marker
+        buf = f'...{buf}'
+        marker = f'---{marker}'
     if start+50 < len(lines[row-1]):
         buf += u'...'
                 #buf = buf + b'\n' + marker

@@ -26,7 +26,7 @@ class TestKernel( unittest.TestCase ):
         matches any of the strings in 'outputList', the test passes.
 
         """
-        print( "Testing <" + tag + ">", end='\n' )
+        print(f'Testing <{tag}>', end='\n')
         # Send the input and collect the output
         response = self.k._cod.dec( self.k.respond( self.k._cod.enc(input_) ) )
         # Check that output is as expected
@@ -48,16 +48,16 @@ class TestKernel( unittest.TestCase ):
         self._testTag('condition test #6', 'test condition', ['You are handsome'])
 
     def test03_date( self ):
-        # the date test will occasionally fail if the original and "test"
-        # times cross a second boundary.  There's no good way to avoid
-        # this problem and still do a meaningful test, so we simply
-        # provide a friendly message to be printed if the test fails.
-        date_warning = """
+        if not self._testTag('date', 'test date', ["The date is %s" % time.asctime()]):
+            # the date test will occasionally fail if the original and "test"
+            # times cross a second boundary.  There's no good way to avoid
+            # this problem and still do a meaningful test, so we simply
+            # provide a friendly message to be printed if the test fails.
+            date_warning = """
         NOTE: the <date> test will occasionally report failure even if it
         succeeds.  So long as the response looks like a date/time string,
         there's nothing to worry about.
         """
-        if not self._testTag('date', 'test date', ["The date is %s" % time.asctime()]):
             print( date_warning )
 
     def test04_case( self ):

@@ -18,21 +18,16 @@ def getfromBaidu(word):
         'User-Agent': 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:22.0) Gecko/20100101 Firefox/22.0'
         }
     baiduurl = 'http://www.baidu.com'
-    url = 'http://www.baidu.com.cn/s?wd=' + word + '&cl=3'
+    url = f'http://www.baidu.com.cn/s?wd={word}&cl=3'
     html = requests.get(url=url,headers=headers)
     path = etree.HTML(html.content)
     #用k来控制爬取的页码范围
 
     for k in range(1, 5):
         path = etree.HTML(requests.get(url, headers).content)
-        flag = 11
-        if k == 1:
-            flag = 10
-
+        flag = 10 if k == 1 else 11
         for i in range(1, flag):
-            sentence = ""
-            for j in path.xpath('//*[@id="%d"]/h3/a//text()'%((k-1)*10+i)):
-                sentence+=j
+            sentence = "".join(path.xpath('//*[@id="%d"]/h3/a//text()'%((k-1)*10+i)))
             #print(sentence.encode('utf-8'))
             #print(sentence)
             list.append(sentence.encode('utf-8'))

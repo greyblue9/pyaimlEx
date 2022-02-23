@@ -36,8 +36,7 @@ def script_list( path ):
     for f in os.listdir(path):
         if os.path.isdir( os.path.join(path,f) ):
             continue
-        m = regexp.match(f)
-        if m:
+        if m := regexp.match(f):
             r.append( m.group(1) )
     return sorted(r)
 
@@ -93,8 +92,7 @@ def load_tests( opt=None ):
     if __name__ != '__main__' or len(sys.argv) < 2 or opt.all:
         test_list = script_list( thisdir )
     else:
-        test_list = [ t if t.startswith('test_') else 'test_' + t
-                      for t in sys.argv[1:] ]
+        test_list = [t if t.startswith('test_') else f'test_{t}' for t in sys.argv[1:]]
 
     loader = unittest.defaultTestLoader
     suite = unittest.TestSuite()
@@ -108,7 +106,7 @@ def load_tests( opt=None ):
     for test in test_list:
         if not opt.quiet:
             print( "Loading unit test '" + test + "'" )
-        suite.addTest( loader.loadTestsFromName( 'test.' + test ) )
+        suite.addTest(loader.loadTestsFromName(f'test.{test}'))
 
     return suite
 
